@@ -37,6 +37,10 @@ def _set_env(var: str):
         return
     os.environ[var] = getpass.getpass(var + ":")
 
+def escape_dollar_signs(text: str) -> str:
+    """Replace $ with \$ to prevent markdown interpretation"""
+    return text.replace('$', r'\$')
+
 
 def state_graph_to_mermaid(graph, title="Workflow") -> str:
     """Convert a LangGraph StateGraph to Mermaid diagram markup"""
@@ -966,7 +970,7 @@ if compile_button:
 
             with tab1:
                 col3, col4 = tab1.columns([1, 1])
-                col3.markdown(final_memo)
+                col3.markdown(escape_dollar_signs(final_memo))
 
             with tab2:
                 # Show how the outline evolved
@@ -979,12 +983,12 @@ if compile_button:
                 with col_initial:
                     with st.container():
                         st.markdown("#### 1️⃣ Initial AI-Generated Outline")
-                        st.markdown(display_tabs.initial_outline)
+                        st.markdown(escape_dollar_signs(display_tabs.initial_outline))
 
                 with col_refined:
                     with st.container():
                         st.markdown("#### 2️⃣ Refined Outline After Research")
-                        st.markdown(display_tabs.refined_outline)
+                        st.markdown(escape_dollar_signs(display_tabs.refined_outline))
 
                 with col_final:
                     with st.container():
@@ -1006,25 +1010,24 @@ if compile_button:
                                 else:
                                     formatted_text += "\n"
 
-                            st.markdown(formatted_text)
+                            st.markdown(escape_dollar_signs(formatted_text))
             with tab3:
                 st.subheader("Research and Analysis Process")
 
                 # Show related subjects identified for research
                 st.markdown("#### Related Topics Identified")
                 for topic in display_tabs.related_subjects.topics:
-                    st.markdown(f"- {topic}")
+                    st.markdown(escape_dollar_signs(f"- {topic}"))
 
                 # Show search queries generated
                 st.markdown("#### Research Queries Generated")
                 for query in display_tabs.queries:
-                    st.markdown(f"- {query}")
+                    st.markdown(escape_dollar_signs(f"- {query}"))
 
             with tab4:
                 st.subheader("Expert Interview Simulations")
 
                 # Debug section
-                st.write("DEBUG INFO:")
                 st.write("Type of perspectives:", type(display_tabs.perspectives))
                 st.write("Type of editors:", type(display_tabs.perspectives['editors']))
                 if display_tabs.perspectives['editors']:
@@ -1064,11 +1067,11 @@ if compile_button:
                     with st.expander(f"Conversation with {editor_info['name']} ({editor_info['role']})"):
                         # Show expert's background first
                         st.markdown("#### Expert Profile")
-                        st.markdown(f"""
+                        st.markdown(escape_dollar_signs(f"""
                         - **Role:** {editor_info['role']}
                         - **Affiliation:** {editor_info['affiliation']}
                         - **Expertise:** {editor_info['description']}
-                        """)
+                        """))
 
                         # Show Q&A flow
                         st.markdown("#### Conversation Flow")
@@ -1106,13 +1109,13 @@ if compile_button:
                                     if name == 'Subject_Matter_Expert':
                                         st.markdown(f"""
                                         <div style='background-color: #000206; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                                            <strong>Expert:</strong> {content}
+                                            <strong>Expert:</strong> {escape_dollar_signs(content)}
                                         </div>
                                         """, unsafe_allow_html=True)
                                     else:
                                         st.markdown(f"""
                                         <div style='background-color: #182429; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                                            <strong>{name}:</strong> {content}
+                                            <strong>{name}:</strong> {escape_dollar_signs(content)}
                                         </div>
                                         """, unsafe_allow_html=True)
             with tab6:
@@ -1122,7 +1125,7 @@ if compile_button:
                 with st.expander("Referenced URLs"):
                     if display_tabs.cited_urls:
                         for i, url in enumerate(display_tabs.cited_urls, 1):
-                            st.markdown(f"{i}. [{url}]({url})")
+                            st.markdown(escape_dollar_signs(f"{i}. [{url}]({url})"))
                     else:
                         st.info("No URLs cited")
 
