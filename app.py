@@ -12,6 +12,23 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 
 load_dotenv()
 
+EXPERT_NAMES = [
+    "Alice Anderson",
+    "Bob Bennett",
+    "Charlie Cooper",
+    "David Davidson",
+    "Emma Edwards",
+    "Frank Fletcher",
+    "Grace Gardner",
+    "Henry Harrison",
+    "Iris Irving",
+    "James Johnson"
+]
+
+def get_expert_name(index: int) -> str:
+    """Get a consistent expert name from our predefined pool"""
+    return EXPERT_NAMES[index % len(EXPERT_NAMES)]
+
 def save_display_tabs(display_tabs, company_name):
     with open(f'display_tabs_{company_name}.pkl', 'wb') as f:
         pickle.dump(display_tabs, f)
@@ -21,6 +38,59 @@ def _set_env(var: str):
     os.environ[var] = getpass.getpass(var + ":")
 
 
+def state_graph_to_mermaid(graph, title="Workflow") -> str:
+    """Convert a LangGraph StateGraph to Mermaid diagram markup"""
+    # Get the underlying NetworkX graph with execution info
+    g = graph.get_state(xray=True)  # This is how we access the graph from langgraph
+
+    # Start the Mermaid diagram
+    mermaid_code = [
+        "%%{init: {'theme': 'dark'}}%%",
+        "graph TD",
+        f"    title[{title}]"
+    ]
+
+    # Add nodes and edges
+    seen_nodes = set()
+
+    # Helper function to sanitize node names for Mermaid
+    def sanitize_node(node):
+        if node == "START":
+            return "((START))"
+        elif node == "END":
+            return "((END))"
+        else:
+            return f"[{node}]"
+
+    # Extract edges from the graph
+    for node, edges in g.config.nodes.items():
+        if node not in seen_nodes:
+            seen_nodes.add(node)
+
+        for edge in edges:
+            target = edge.target
+            if target not in seen_nodes:
+                seen_nodes.add(target)
+
+            # Add the edge to Mermaid markup
+            mermaid_code.append(f"    {node}{sanitize_node(node)} --> {target}{sanitize_node(target)}")
+
+    # Add styling
+    mermaid_code.extend([
+        "    classDef default fill:#1E88E5,stroke:#4A90E2,color:white",
+        "    classDef start fill:#4CAF50,stroke:#45A049,color:white",
+        "    classDef end fill:#F44336,stroke:#D32F2F,color:white",
+        "    class START start",
+        "    class END end"
+    ])
+
+    return "\n".join(mermaid_code)
+
+
+# Then in your tab7:
+
+
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 _set_env("OPENAI_API_KEY")
@@ -28,7 +98,13 @@ _set_env("TAVILY_API_KEY")
 
 
 def sanitize_name(name: str) -> str:
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    """
+    Consistently sanitize names while preserving readability.
+    Converts "Alice Anderson" to "Alice_Anderson"
+    """
+    # Replace spaces with underscores, remove any other special characters
+    sanitized = re.sub(r'[^a-zA-Z0-9 ]', '', name)
+    return sanitized.replace(' ', '_')
 
 async def compile_investment_memo(company):
     from langchain_openai import ChatOpenAI
@@ -42,7 +118,7 @@ async def compile_investment_memo(company):
 
     from langchain_core.prompts import ChatPromptTemplate
 
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, validator
 
     class IntermediateResults:
         def __init__(self):
@@ -58,6 +134,8 @@ async def compile_investment_memo(company):
             self.interview_results: Any
             self.results: Any
             self.updated_outline: Any
+            self.storm_graph: Any
+            self.interview_graph: Any
 
 
     display_tabs = IntermediateResults()
@@ -140,16 +218,14 @@ async def compile_investment_memo(company):
     related_subjects = await expand_chain.ainvoke({"topic": example_topic})
     display_tabs.related_subjects = related_subjects
 
-
     class Editor(BaseModel):
         affiliation: str = Field(
             description="Primary affiliation of the editor.",
         )
         name: str = Field(
             description="Name of the editor.",
-            pattern=r"^[A-Za-z0-9 _-]{1,64}$"  # allow spaces now
+            pattern=r"^[A-Za-z ]{1,64}$"  # Only letters and spaces
         )
-
         role: str = Field(
             description="Role of the editor in the context of the topic.",
         )
@@ -157,9 +233,16 @@ async def compile_investment_memo(company):
             description="Description of the editor's focus, concerns, and motives.",
         )
 
+        @validator('name')
+        def validate_name(cls, name):
+            """Ensure name is from our predefined list"""
+            if name not in EXPERT_NAMES:
+                raise ValueError(f"Name must be one of the predefined expert names: {', '.join(EXPERT_NAMES)}")
+            return name
+
         @property
         def persona(self) -> str:
-            return f"Name: {self.name}\nRole: {self.role}\nAffiliation: {self.affiliation}\nDescription: {self.description}\n"
+            return f"Name: {sanitize_name(self.name)}\nRole: {self.role}\nAffiliation: {self.affiliation}\nDescription: {self.description}\n"
 
     class Perspectives(BaseModel):
         editors: List[Editor] = Field(
@@ -167,19 +250,20 @@ async def compile_investment_memo(company):
             # Add a pydantic validation/restriction to be at most M editors
         )
 
-    gen_perspectives_prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You need to select a diverse (and distinct) group of Investment analysts who will work together to create a comprehensive Investment memo on the topic. Each of them represents a different perspective, role, or affiliation related to this company, investment opportunity and topic.\
-        You can use other Investment opportunity pages of related topics for inspiration. For each editor, add a description of what they will focus on.
+    gen_perspectives_prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You need to select a diverse group of Investment analysts who will work together to create a comprehensive Investment memo on the topic. 
+            Please use ONLY the following names for the analysts (in order): {expert_names}
 
-        Investment memo outlines of related topics for inspiration:
-        {examples}""",
-            ),
-            ("user", "Topic of interest: {topic}"),
-        ]
-    )
+            Each analyst represents a different perspective, role, or affiliation related to this company, investment opportunity and topic.
+            You can use other Investment opportunity pages of related topics for inspiration. For each editor, add a description of what they will focus on.
+
+            Investment memo outlines of related topics for inspiration:
+            {examples}""",
+        ),
+        ("user", "Topic of interest: {topic}"),
+    ])
 
     gen_perspectives_chain = gen_perspectives_prompt | ChatOpenAI(
         model="gpt-3.5-turbo"
@@ -212,7 +296,11 @@ async def compile_investment_memo(company):
                 continue
             all_docs.extend(docs)
         formatted = format_docs(all_docs)
-        return await gen_perspectives_chain.ainvoke({"examples": formatted, "topic": topic})
+        return await gen_perspectives_chain.ainvoke({
+                "examples": formatted,
+                "topic": topic,
+                "expert_names": ", ".join(EXPERT_NAMES)
+            })
 
     perspectives = await survey_subjects.ainvoke(example_topic)
     display_tabs.perspectives = perspectives.model_dump()
@@ -252,28 +340,33 @@ async def compile_investment_memo(company):
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from langchain_core.prompts import MessagesPlaceholder
 
-    gen_qn_prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are an experienced Private Equity Investment manager conducting due diligence on a potential investment, and want to contribute to a specific section of the Investment memo. \
-    Besides your identity as a Private Equity Investor, you have a specific focus when researching this company, opprtunity, sector and topic. \
-    Now, you are chatting with an industry expert to get information. Ask one question at a time about the target company, 
-            focusing on areas like market trends, competitive landscape, unit economics, technology differentiation, 
-            and regulatory environment.
+    gen_qn_prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            """You are an experienced Private Equity Investment manager conducting due diligence on a potential investment.
+            You have a very specific area of expertise and focus that you must maintain in your questioning:
 
-    When you have no more questions to ask, say "Thank you so much for your help!" to end the conversation.\
-    Please only ask one question at a time and don't ask what you have asked before.\
-    Your questions should be related to the company, investment thesis and topic you want to write.
-    Be comprehensive and curious, gaining as much unique insight from the expert as possible.\
+            {persona}
 
-    Stay true to your specific perspective:
+            You are chatting with an industry expert to gather information that relates SPECIFICALLY to your area of expertise.
+            Your questions should draw directly from your role, affiliation and expertise description.
 
-    {persona}""",
-            ),
-            MessagesPlaceholder(variable_name="messages", optional=True),
-        ]
-    )
+            For example:
+            - A Legal Expert should focus on regulatory compliance, intellectual property, contractual obligations
+            - A Data Analyst should focus on user metrics, engagement patterns, performance indicators
+            - A Tech Expert should focus on system architecture, scalability, technical debt
+            - A Financial Expert should focus on revenue models, cost structures, margins
+            - A Market Analyst should focus on competition, competitive threats, supplier and customer dynamics
+
+            Ask ONE question at a time about the target company, but ensure each question is directly related to your specific expertise.
+            Do not ask about general topics outside your domain of expertise.
+            Do not ask questions that other experts would be better suited to ask.
+
+            When you have no more questions specific to your domain of expertise, say "Thank you so much for your help!"
+            """
+        ),
+        MessagesPlaceholder(variable_name="messages", optional=True),
+    ])
 
     def tag_with_name(ai_message: AIMessage, name: str):
         ai_message.name = sanitize_name(name)
@@ -473,6 +566,7 @@ async def compile_investment_memo(company):
     interview_graph = builder.compile(checkpointer=False).with_config(
         run_name="Conduct Interviews"
     )
+    display_tabs.interview_graph = interview_graph  # Store the graph
     final_step = None
 
     initial_state = {
@@ -755,6 +849,7 @@ async def compile_investment_memo(company):
     builder_of_storm.add_edge(START, nodes[0][0])
     builder_of_storm.add_edge(nodes[-1][0], END)
     storm = builder_of_storm.compile(checkpointer=MemorySaver())
+    display_tabs.storm_graph = storm  # Store the graph
 
     config = {"configurable": {"thread_id": "my-thread"}}
     async for step in storm.astream(
@@ -833,13 +928,13 @@ st.set_page_config(page_title="APIs Partners PE Investment Memo App", layout="wi
 
 # Sidebar
 with st.sidebar:
-    st.image("apis.png", width=200)  # Adjust path and size
-    st.write("Apis Partners")
     st.image("lucidate.png", width=120)  # Another logo
     st.write("Powered by Lucidate")
 
 # Main pane
-st.title("APIs Partners PE Investment Memo App")
+st.image("apis.png", width=200)  # Adjust path and size
+st.write("Apis Partners")
+st.title("Apis Partners Private Equity Investment Memorandum Writer")
 st.write("Enter company name:")
 
 col1, col2 = st.columns([2,1])
@@ -853,13 +948,14 @@ if compile_button:
         with st.spinner(f"Compiling Investment memo for '{company_name}' from primary sources using 'STORM'..."):
             # Run the asynchronous function
             final_memo, display_tabs = asyncio.run(compile_investment_memo(company_name))
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
                 "Memo",
                 "Outline Evolution",
                 "Research Process",
                 "Expert Interviews",
                 "Conversation Analysis",  # New tab
-                "Source Analysis"
+                "Source Analysis",
+                "Process Visualization"
             ])
 
             with tab1:
@@ -974,7 +1070,7 @@ if compile_button:
                         # Debug each result match attempt
                         for result in display_tabs.interview_results:
                             result_info = get_result_info(result)
-                            st.write(f"Comparing {result_info['editor']['name']} with {editor_info['name']}")
+                            # st.write(f"Comparing {result_info['editor']['name']} with {editor_info['name']}")
 
                             if result_info['editor']['name'] == editor_info['name']:
 
@@ -1013,6 +1109,149 @@ if compile_button:
                                             <strong>{name}:</strong> {content}
                                         </div>
                                         """, unsafe_allow_html=True)
+            with tab6:
+                st.subheader("Source Analysis")
+
+                # Get unique citations from display_tabs
+                with st.expander("Referenced URLs"):
+                    if display_tabs.cited_urls:
+                        for i, url in enumerate(display_tabs.cited_urls, 1):
+                            st.markdown(f"{i}. [{url}]({url})")
+                    else:
+                        st.info("No URLs cited")
+
+                # Show references with their content
+                with st.expander("Source Content Analysis"):
+                    if display_tabs.cited_references:
+                        for url, content in display_tabs.cited_references.items():
+                            st.markdown(f"### Source: [{url}]({url})")
+                            with st.container():
+                                st.markdown(f"```\n{content[:500]}...\n```")
+                            st.markdown("---")
+                    else:
+                        st.info("No reference content available")
+
+                # Show how sources were used
+                with st.expander("Source Usage by Expert"):
+                    for i, editor in enumerate(display_tabs.perspectives['editors']):
+                        editor_info = get_editor_info(editor)
+                        st.markdown(f"### {editor_info['name']}'s Sources")
+
+                        expert_citations = set()
+                        for result in display_tabs.interview_results:
+                            result_info = get_result_info(result)
+                            if result_info['editor']['name'] == editor_info['name']:
+                                for msg in result_info['messages']:
+                                    if isinstance(msg, dict) and 'content' in msg:
+                                        # Look for citation patterns [1]: url or similar
+                                        citations = re.findall(r'\[[\d\^]+\]:\s*(http[s]?://\S+)', msg['content'])
+                                        expert_citations.update(citations)
+
+                        if expert_citations:
+                            for url in expert_citations:
+                                st.markdown(f"- [{url}]({url})")
+                        else:
+                            st.info(f"No sources cited by {editor_info['name']}")
+
+                # Statistics about sources
+                st.markdown("### Source Statistics")
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("Total Unique Sources",
+                              len(display_tabs.cited_urls) if display_tabs.cited_urls else 0)
+
+                with col2:
+                    # Calculate number of experts citing sources using helper functions
+                    experts_with_citations = 0
+                    for result in display_tabs.interview_results:
+                        result_info = get_result_info(result)
+                        has_citations = False
+                        for msg in result_info['messages']:
+                            content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
+                            if '[' in str(content):
+                                has_citations = True
+                                break
+                        if has_citations:
+                            experts_with_citations += 1
+                    st.metric("Experts Citing Sources", experts_with_citations)
+
+                with col3:
+                    # Average citations per response
+                    total_citations = 0
+                    for result in display_tabs.interview_results:
+                        result_info = get_result_info(result)
+                        for msg in result_info['messages']:
+                            content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
+                            citations = len(re.findall(r'\[[\d\^]+\]', str(content)))
+                            total_citations += citations
+
+                    avg_citations = total_citations / len(
+                        display_tabs.interview_results) if display_tabs.interview_results else 0
+                    st.metric("Average Citations per Expert", f"{avg_citations:.1f}")
+
+            # ... other tabs ...
+
+            with tab7:
+                st.subheader("Process Visualization")
+
+                # First visualization: Agent Network
+                st.markdown("### Agent Collaboration Network")
+
+                import networkx as nx
+                import matplotlib.pyplot as plt
+
+                # Set dark background style for matplotlib
+                plt.style.use('dark_background')
+
+                # Create graph
+                G = nx.DiGraph()
+                agents = ["Research Coordinator", "Outline Generator", "Expert Interviewer",
+                          "Source Analyzer", "Content Writer", "Fact Checker"]
+
+                for agent in agents:
+                    G.add_node(agent)
+
+                edges = [
+                    ("Research Coordinator", "Outline Generator"),
+                    ("Outline Generator", "Expert Interviewer"),
+                    ("Expert Interviewer", "Source Analyzer"),
+                    ("Source Analyzer", "Content Writer"),
+                    ("Content Writer", "Fact Checker"),
+                    ("Fact Checker", "Research Coordinator")
+                ]
+                G.add_edges_from(edges)
+
+                # Create visualization with dark theme
+                fig, ax = plt.subplots(figsize=(10, 8), facecolor='#0E1117')
+                ax.set_facecolor('#0E1117')
+
+                pos = nx.spring_layout(G)
+                nx.draw(G, pos,
+                        with_labels=True,
+                        node_color='#1E88E5',  # Blue nodes
+                        node_size=5000,
+                        font_size=6,
+                        font_weight='bold',
+                        font_color='white',
+                        edge_color='#4A90E2',
+                        arrows=True,
+                        arrowsize=20,
+                        ax=ax)
+
+                st.pyplot(fig)
+
+
+
+                if display_tabs.storm_graph:
+                    st.markdown("### STORM Process Flow")
+                    storm_mermaid = display_tabs.storm_graph.get_graph(xray=True).draw_mermaid_png()
+                    st.image(storm_mermaid)
+
+                if display_tabs.interview_graph:
+                    st.markdown("### Interview Process Flow")
+                    interview_mermaid = display_tabs.interview_graph.get_graph(xray=True).draw_mermaid_png()
+                    st.image(interview_mermaid)
 
         # Once done, display the final memo
         # st.markdown(final_memo)
