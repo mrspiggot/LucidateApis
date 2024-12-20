@@ -344,11 +344,9 @@ async def compile_investment_memo(company):
         (
             "system",
             """You are an experienced Private Equity Investment manager conducting due diligence on a potential investment.
-            You have a very specific area of expertise and focus that you must maintain in your questioning:
+            You have a very specific area of expertise which is based on the Description: in {description}. You must maintain focus on this specific area in your questioning:
 
-            {persona}
-
-            You are chatting with an industry expert to gather information that relates SPECIFICALLY to your area of expertise.
+            You are chatting with an industry expert to gather information that relates SPECIFICALLY to your area of expertise, which is based on your Role: and Affiliation: from {persona}.
             Your questions should draw directly from your role, affiliation and expertise description.
 
             For example:
@@ -358,7 +356,7 @@ async def compile_investment_memo(company):
             - A Financial Expert should focus on revenue models, cost structures, margins
             - A Market Analyst should focus on competition, competitive threats, supplier and customer dynamics
 
-            Ask ONE question at a time about the target company, but ensure each question is directly related to your specific expertise.
+            Ask ONE question at a time about the target company, but ensure each question is directly related to your specific expertise; i.e.  {description}.
             Do not ask about general topics outside your domain of expertise.
             Do not ask questions that other experts would be better suited to ask.
 
@@ -367,6 +365,7 @@ async def compile_investment_memo(company):
         ),
         MessagesPlaceholder(variable_name="messages", optional=True),
     ])
+
 
     def tag_with_name(ai_message: AIMessage, name: str):
         ai_message.name = sanitize_name(name)
@@ -383,9 +382,10 @@ async def compile_investment_memo(company):
     @as_runnable
     async def generate_question(state: InterviewState):
         editor = state["editor"]
+
         gn_chain = (
                 RunnableLambda(swap_roles).bind(name=sanitize_name(editor.name))
-                | gen_qn_prompt.partial(persona=editor.persona)
+                | gen_qn_prompt.partial(persona=editor.persona, description=editor.description)
                 | fast_llm
                 | RunnableLambda(tag_with_name).bind(name=sanitize_name(editor.name))
         )
@@ -463,6 +463,7 @@ async def compile_investment_memo(company):
     from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
     from langchain_core.tools import tool
 
+    from langchain_community.tools.tavily_search import TavilySearchResults
     from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
     from langchain_core.tools import tool
 
@@ -483,16 +484,21 @@ async def compile_investment_memo(company):
     @tool
     async def search_engine(query: str):
         """Search engine to the internet."""
-        results = DuckDuckGoSearchAPIWrapper()._ddgs_text(query)
-        return [{"content": r["body"], "url": r["href"]} for r in results]
+        try:
+            # Try Tavily first
+            tavily_search = TavilySearchResults(
+                max_results=4,
+                api_key=TAVILY_API_KEY  # We already have this from environment
+            )
+            results = tavily_search.invoke(query)
+            return [{"content": r["content"], "url": r["url"]} for r in results]
+        except Exception as e:
+            print(f"Tavily search failed: {str(e)}. Falling back to DuckDuckGo.")
+            # Fall back to DuckDuckGo
+            results = DuckDuckGoSearchAPIWrapper()._ddgs_text(query)
+            return [{"content": r["body"], "url": r["href"]} for r in results]
 
-    # DDG
 
-    @tool
-    async def search_engine(query: str):
-        """Search engine to the internet."""
-        results = DuckDuckGoSearchAPIWrapper()._ddgs_text(query)
-        return [{"content": r["body"], "url": r["href"]} for r in results]
 
     import json
 
