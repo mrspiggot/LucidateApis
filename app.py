@@ -1,6 +1,7 @@
 import streamlit as st
 import re
 import pickle
+import time
 
 
 import os
@@ -1029,7 +1030,7 @@ with st.sidebar:
     st.write("Powered by Lucidate")
     st.write("## Find Matching Companies")
     search_text = st.text_area("Describe the companies you want to find:")
-    max_dropdown = st.number_input("Max companies to show:", min_value=0, max_value=10, value=3)
+    max_dropdown = st.number_input("Max companies to show:", min_value=0, max_value=10, value=7)
 
     if st.button("Search for Companies"):
         st.session_state["found_companies"] = find_companies(search_text)
@@ -1055,6 +1056,7 @@ compile_button = st.button("Build Memo", disabled=not st.session_state["selected
 
 if compile_button and st.session_state["selected_company"]:
     company_name = st.session_state["selected_company"]
+    start_time=time.time()
     with st.spinner(f"Compiling Investment memo for '{company_name}' from primary sources using 'STORM'..."):
         final_memo, display_tabs = asyncio.run(compile_investment_memo(company_name))
 
@@ -1361,6 +1363,10 @@ if compile_button and st.session_state["selected_company"]:
                 st.markdown("### Interview Process Flow")
                 interview_mermaid = display_tabs.interview_graph.get_graph(xray=True).draw_mermaid_png()
                 st.image(interview_mermaid)
+
+    end_time = time.time()
+    elapsed_seconds = end_time - start_time
+    st.success(f"Research completed in {elapsed_seconds:.2f} seconds.")
 
     # Once done, display the final memo
     # st.markdown(final_memo)
