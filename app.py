@@ -148,7 +148,10 @@ async def compile_investment_memo(company):
         [
             (
                 "system",
-                "You are a private equity analyst. Create a comprehensive due diligence outline about a user-provided company or investment opportunity. Include sections on market analysis, competitive landscape, financial performance, detailed SWOT analysis, risks, and potential returns.",
+                "You are a private equity analyst. Create a comprehensive due diligence outline about a user-provided "
+                "company or investment opportunity. Include sections on market analysis, competitive landscape, "
+                "financial performance, detailed SWOT analysis, risks, any prior investors, valuations and investment "
+                "rounds as well as potential returns.",
             ),
             ("user", "{topic}"),
         ]
@@ -194,7 +197,7 @@ async def compile_investment_memo(company):
         Outline
     )
 
-    example_topic = f"Evaluating a potential investment in {company}, a startup FinTech firm."
+    example_topic = f"Evaluating a potential private equity investment in {company}, a startup FinTech firm."
 
     initial_outline = generate_outline_direct.invoke({"topic": example_topic})
     display_tabs.initial_outline = initial_outline.as_str
@@ -358,7 +361,8 @@ async def compile_investment_memo(company):
             - A Data Analyst should focus on user metrics, engagement patterns, performance indicators
             - A Tech Expert should focus on system architecture, scalability, technical debt
             - A Financial Expert should focus on revenue models, cost structures, margins
-            - A Market Analyst should focus on competition, competitive threats, supplier and customer dynamics
+            - A Market Analyst should focus on competition, competitive threats, supplier and customer dynamics 
+            - An Investment Analyst should focus on existing investors and valuations in prior investment rounds in this company or companies in this sector
 
             Ask ONE question at a time about the target company, but ensure each question is directly related to your specific expertise; i.e.  {description}.
             Do not ask about general topics outside your domain of expertise.
