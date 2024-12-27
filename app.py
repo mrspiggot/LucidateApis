@@ -1366,7 +1366,14 @@ if compile_button and st.session_state["selected_company"]:
 
     end_time = time.time()
     elapsed_seconds = end_time - start_time
-    st.success(f"Research completed in {elapsed_seconds:.2f} seconds.")
+    minutes = int(elapsed_seconds // 60)  # whole minutes
+    seconds = elapsed_seconds % 60  # leftover seconds as a float
+
+    # Format your message
+    st.success(
+        f"Research completed in {elapsed_seconds:.2f} seconds "
+        f"(or {minutes} min {seconds:.0f} s)."
+    )
 
     # Once done, display the final memo
     # st.markdown(final_memo)
