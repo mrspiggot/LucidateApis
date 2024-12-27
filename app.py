@@ -937,13 +937,105 @@ def get_result_info(result):
         'references': references
     }
 
+import json
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+# The same fallback search logic as your code
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
+
+# 1) A function to run the actual web search
+def do_web_search(query: str, max_results=4):
+    """Tries Tavily first, then DuckDuckGo."""
+    tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
+    duck = DuckDuckGoSearchAPIWrapper()
+    try:
+        results = tavily.invoke(query)
+        if results:
+            return results
+        print("No results from Tavily. Falling back to DuckDuckGo.")
+        ddg_results = duck._ddgs_text(query)
+        return [{"content": r["body"], "url": r["href"]} for r in ddg_results]
+    except Exception as e:
+        print(f"Tavily search failed: {e}. Falling back to DuckDuckGo.")
+        ddg_results = duck._ddgs_text(query)
+        return [{"content": r["body"], "url": r["href"]} for r in ddg_results]
+
+# 2) A function to extract company names from the search result text
+def extract_company_names(user_request: str, web_results) -> list:
+    """
+    Pass the web results to an LLM prompt that says:
+      "Based on the user request, list possible relevant company names only."
+    Return a Python list of strings.
+    """
+    text_snippets = []
+    for r in web_results:
+        snippet = (r["content"] or "")[:800]  # limit text
+        text_snippets.append(f"- {snippet}")
+
+    combined_text = "\n".join(text_snippets)
+
+    prompt = ChatPromptTemplate.from_template(
+        """
+        The user asked: {user_request}
+
+        Here are some search snippets that might mention relevant companies:
+        {combined_text}
+
+        Please identify up to 10 distinct company names that match the user's request.
+        Return them as a JSON list of strings, e.g. ["CompanyA", "CompanyB"].
+        """
+    )
+
+    llm = ChatOpenAI(model="gpt-3.5-turbo")
+    resp = llm.invoke(
+        prompt.format(user_request=user_request, combined_text=combined_text)
+    )
+
+    # Attempt to parse JSON
+    try:
+        data = json.loads(resp.content)
+        # ensure it's a list of strings
+        if isinstance(data, list):
+            # e.g. ["CompanyA", "CompanyB"]
+            return [str(x) for x in data]
+        else:
+            return []
+    except:
+        return []
+
+def find_companies(user_request: str) -> list:
+    """High-level function: search, then extract relevant company names."""
+    raw_results = do_web_search(user_request, max_results=4)
+    companies = extract_company_names(user_request, raw_results)
+    return companies
+
+
+
+
+
 
 st.set_page_config(page_title="APIs Partners PE Investment Memo App", layout="wide")
+
+if "found_companies" not in st.session_state:
+    st.session_state["found_companies"] = []
+if "selected_company" not in st.session_state:
+    st.session_state["selected_company"] = None
 
 # Sidebar
 with st.sidebar:
     st.image("lucidate.png", width=120)  # Another logo
     st.write("Powered by Lucidate")
+    st.write("## Find Matching Companies")
+    search_text = st.text_area("Describe the companies you want to find:")
+    max_dropdown = st.number_input("Max companies to show:", min_value=0, max_value=10, value=3)
+
+    if st.button("Search for Companies"):
+        st.session_state["found_companies"] = find_companies(search_text)
+        st.write("Companies found:")
+        for c in st.session_state["found_companies"]:
+            st.write("-", c)
 
 # Main pane
 st.image("apis.png", width=200)  # Adjust path and size
@@ -951,320 +1043,324 @@ st.write("Apis Partners")
 st.title("Apis Partners Private Equity Investment Memorandum Writer")
 st.write("Enter company name:")
 
-col1, col2 = st.columns([2,1])
-company_name = col1.text_input("", value="")  # empty default
-compile_button = col2.button("Compile investment memo")
+# Let user pick a company from the found list
+if st.session_state["found_companies"]:
+    st.session_state["selected_company"] = st.selectbox(
+        "Select a company to build a memo for:",
+        st.session_state["found_companies"][:max_dropdown],  # limit how many to show
+    )
 
-if compile_button:
-    if company_name.strip() == "":
-        st.error("Please enter a company name.")
-    else:
-        with st.spinner(f"Compiling Investment memo for '{company_name}' from primary sources using 'STORM'..."):
-            # Run the asynchronous function
-            final_memo, display_tabs = asyncio.run(compile_investment_memo(company_name))
-            tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-                "Memo",
-                "Outline Evolution",
-                "Research Process",
-                "Expert Interviews",
-                "Conversation Analysis",  # New tab
-                "Source Analysis",
-                "Process Visualization"
-            ])
+compile_button = st.button("Build Memo", disabled=not st.session_state["selected_company"])
 
-            with tab1:
-                col3, col4 = tab1.columns([1, 1])
-                col3.markdown(escape_dollar_signs(final_memo))
 
-            with tab2:
-                # Show how the outline evolved
-                st.subheader("Three-stage evolution of the Investment Memo Structure")
+if compile_button and st.session_state["selected_company"]:
+    company_name = st.session_state["selected_company"]
+    with st.spinner(f"Compiling Investment memo for '{company_name}' from primary sources using 'STORM'..."):
+        final_memo, display_tabs = asyncio.run(compile_investment_memo(company_name))
 
-                # Use smaller columns to prevent text from being too squeezed
-                col_initial, col_refined, col_final = st.columns([1, 1, 1])
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+            "Memo",
+            "Outline Evolution",
+            "Research Process",
+            "Expert Interviews",
+            "Conversation Analysis",  # New tab
+            "Source Analysis",
+            "Process Visualization"
+        ])
 
-                # Add containers for better visual separation
-                with col_initial:
-                    with st.container():
-                        st.markdown("#### 1️⃣ Initial AI-Generated Outline")
-                        st.markdown(escape_dollar_signs(display_tabs.initial_outline))
+        with tab1:
+            col3, col4 = tab1.columns([1, 1])
+            col3.markdown(escape_dollar_signs(final_memo))
 
-                with col_refined:
-                    with st.container():
-                        st.markdown("#### 2️⃣ Refined Outline After Research")
-                        st.markdown(escape_dollar_signs(display_tabs.refined_outline))
+        with tab2:
+            # Show how the outline evolved
+            st.subheader("Three-stage evolution of the Investment Memo Structure")
 
-                with col_final:
-                    with st.container():
-                        if display_tabs.updated_outline:
-                            st.markdown("#### 3️⃣ Final Updated Outline")
+            # Use smaller columns to prevent text from being too squeezed
+            col_initial, col_refined, col_final = st.columns([1, 1, 1])
 
-                            # Format the final outline properly
-                            outline = display_tabs.updated_outline
-                            formatted_text = f"# {outline.page_title}\n\n"
+            # Add containers for better visual separation
+            with col_initial:
+                with st.container():
+                    st.markdown("#### 1️⃣ Initial AI-Generated Outline")
+                    st.markdown(escape_dollar_signs(display_tabs.initial_outline))
 
-                            for section in outline.sections:
-                                formatted_text += f"## {section.section_title}\n"
-                                formatted_text += f"{section.description}\n\n"
+            with col_refined:
+                with st.container():
+                    st.markdown("#### 2️⃣ Refined Outline After Research")
+                    st.markdown(escape_dollar_signs(display_tabs.refined_outline))
 
-                                if section.subsections:
-                                    for subsection in section.subsections:
-                                        formatted_text += f"### {subsection.subsection_title}\n"
-                                        formatted_text += f"{subsection.description}\n\n"
+            with col_final:
+                with st.container():
+                    if display_tabs.updated_outline:
+                        st.markdown("#### 3️⃣ Final Updated Outline")
+
+                        # Format the final outline properly
+                        outline = display_tabs.updated_outline
+                        formatted_text = f"# {outline.page_title}\n\n"
+
+                        for section in outline.sections:
+                            formatted_text += f"## {section.section_title}\n"
+                            formatted_text += f"{section.description}\n\n"
+
+                            if section.subsections:
+                                for subsection in section.subsections:
+                                    formatted_text += f"### {subsection.subsection_title}\n"
+                                    formatted_text += f"{subsection.description}\n\n"
+                            else:
+                                formatted_text += "\n"
+
+                        st.markdown(escape_dollar_signs(formatted_text))
+        with tab3:
+            st.subheader("Research and Analysis Process")
+
+            # Show related subjects identified for research
+            st.markdown("#### Related Topics Identified")
+            for topic in display_tabs.related_subjects.topics:
+                st.markdown(escape_dollar_signs(f"- {topic}"))
+
+            # Show search queries generated
+            st.markdown("#### Research Queries Generated")
+            for query in display_tabs.queries:
+                st.markdown(escape_dollar_signs(f"- {query}"))
+
+        with tab4:
+            st.subheader("Expert Interview Simulations")
+
+            # Debug section
+            st.write("Type of perspectives:", type(display_tabs.perspectives))
+            st.write("Type of editors:", type(display_tabs.perspectives['editors']))
+            if display_tabs.perspectives['editors']:
+                st.write("Type of first editor:", type(display_tabs.perspectives['editors'][0]))
+
+            st.write("Type of interview_results:", type(display_tabs.interview_results))
+            if display_tabs.interview_results:
+                st.write("First interview result:", type(display_tabs.interview_results[0]))
+                st.json(display_tabs.interview_results[0])  # This will show us the structure
+
+            # Then let's try a simplified version of the display logic
+            for i, editor in enumerate(display_tabs.perspectives['editors']):
+                with st.expander(f"Expert {i + 1}: Details"):
+                    st.write("Editor object type:", type(editor))
+                    st.json(editor)  # Show raw editor data
+
+                    if display_tabs.interview_results:
+                        st.markdown("#### Conversation:")
+                        st.write("Number of interview results:", len(display_tabs.interview_results))
+                        for result in display_tabs.interview_results:
+                            st.write("Result type:", type(result))
+                            st.json(result)  # Show raw result data
+
+        with tab5:
+            st.subheader("Conversation Analysis")
+
+            # Debug information
+            st.write("Number of editors:", len(display_tabs.perspectives['editors']))
+            st.write("Number of interview results:", len(display_tabs.interview_results))
+
+            for i, editor in enumerate(display_tabs.perspectives['editors']):
+                editor_info = get_editor_info(editor)
+
+                # Debug information for each editor
+                st.write(f"\nLooking for conversations for: {editor_info['name']}")
+
+                with st.expander(f"Conversation with {editor_info['name']} ({editor_info['role']})"):
+                    # Show expert's background first
+                    st.markdown("#### Expert Profile")
+                    st.markdown(escape_dollar_signs(f"""
+                    - **Role:** {editor_info['role']}
+                    - **Affiliation:** {editor_info['affiliation']}
+                    - **Expertise:** {editor_info['description']}
+                    """))
+
+                    # Show Q&A flow
+                    st.markdown("#### Conversation Flow")
+
+                    # Debug each result match attempt
+                    for result in display_tabs.interview_results:
+                        result_info = get_result_info(result)
+                        # st.write(f"Comparing {result_info['editor']['name']} with {editor_info['name']}")
+
+                        if result_info['editor']['name'] == editor_info['name']:
+
+                            # Create a visually appealing Q&A format
+                            for msg in result_info['messages']:
+                                # Extract the actual content from AIMessage structure
+                                # Handle both string content and AIMessage objects
+                                if isinstance(msg, str):
+                                    content = msg
+                                    name = "Unknown"
                                 else:
-                                    formatted_text += "\n"
+                                    # Check if the content is nested in an AIMessage structure
+                                    if 'AIMessage' in str(msg):
+                                        # Extract content from AIMessage structure
+                                        import re
 
-                            st.markdown(escape_dollar_signs(formatted_text))
-            with tab3:
-                st.subheader("Research and Analysis Process")
+                                        content_match = re.search(r"content='(.*?)',", str(msg))
+                                        name_match = re.search(r"name='(.*?)'", str(msg))
 
-                # Show related subjects identified for research
-                st.markdown("#### Related Topics Identified")
-                for topic in display_tabs.related_subjects.topics:
-                    st.markdown(escape_dollar_signs(f"- {topic}"))
+                                        content = content_match.group(1) if content_match else "No content"
+                                        name = name_match.group(1) if name_match else "Unknown"
+                                    else:
+                                        content = msg.get('content', 'No content')
+                                        name = msg.get('name', 'Unknown')
 
-                # Show search queries generated
-                st.markdown("#### Research Queries Generated")
-                for query in display_tabs.queries:
-                    st.markdown(escape_dollar_signs(f"- {query}"))
+                                # Style based on who's speaking
+                                if name == 'Subject_Matter_Expert':
+                                    st.markdown(f"""
+                                    <div style='background-color: #000206; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                                        <strong>Expert:</strong> {escape_dollar_signs(content)}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"""
+                                    <div style='background-color: #182429; padding: 10px; border-radius: 5px; margin: 5px 0;'>
+                                        <strong>{name}:</strong> {escape_dollar_signs(content)}
+                                    </div>
+                                    """, unsafe_allow_html=True)
+        with tab6:
+            st.subheader("Source Analysis")
 
-            with tab4:
-                st.subheader("Expert Interview Simulations")
+            # Get unique citations from display_tabs
+            with st.expander("Referenced URLs"):
+                if display_tabs.cited_urls:
+                    for i, url in enumerate(display_tabs.cited_urls, 1):
+                        st.markdown(escape_dollar_signs(f"{i}. [{url}]({url})"))
+                else:
+                    st.info("No URLs cited")
 
-                # Debug section
-                st.write("Type of perspectives:", type(display_tabs.perspectives))
-                st.write("Type of editors:", type(display_tabs.perspectives['editors']))
-                if display_tabs.perspectives['editors']:
-                    st.write("Type of first editor:", type(display_tabs.perspectives['editors'][0]))
+            # Show references with their content
+            with st.expander("Source Content Analysis"):
+                if display_tabs.cited_references:
+                    for url, content in display_tabs.cited_references.items():
+                        st.markdown(f"### Source: [{url}]({url})")
+                        with st.container():
+                            st.markdown(f"```\n{content[:500]}...\n```")
+                        st.markdown("---")
+                else:
+                    st.info("No reference content available")
 
-                st.write("Type of interview_results:", type(display_tabs.interview_results))
-                if display_tabs.interview_results:
-                    st.write("First interview result:", type(display_tabs.interview_results[0]))
-                    st.json(display_tabs.interview_results[0])  # This will show us the structure
-
-                # Then let's try a simplified version of the display logic
-                for i, editor in enumerate(display_tabs.perspectives['editors']):
-                    with st.expander(f"Expert {i + 1}: Details"):
-                        st.write("Editor object type:", type(editor))
-                        st.json(editor)  # Show raw editor data
-
-                        if display_tabs.interview_results:
-                            st.markdown("#### Conversation:")
-                            st.write("Number of interview results:", len(display_tabs.interview_results))
-                            for result in display_tabs.interview_results:
-                                st.write("Result type:", type(result))
-                                st.json(result)  # Show raw result data
-
-            with tab5:
-                st.subheader("Conversation Analysis")
-
-                # Debug information
-                st.write("Number of editors:", len(display_tabs.perspectives['editors']))
-                st.write("Number of interview results:", len(display_tabs.interview_results))
-
+            # Show how sources were used
+            with st.expander("Source Usage by Expert"):
                 for i, editor in enumerate(display_tabs.perspectives['editors']):
                     editor_info = get_editor_info(editor)
+                    st.markdown(f"### {editor_info['name']}'s Sources")
 
-                    # Debug information for each editor
-                    st.write(f"\nLooking for conversations for: {editor_info['name']}")
-
-                    with st.expander(f"Conversation with {editor_info['name']} ({editor_info['role']})"):
-                        # Show expert's background first
-                        st.markdown("#### Expert Profile")
-                        st.markdown(escape_dollar_signs(f"""
-                        - **Role:** {editor_info['role']}
-                        - **Affiliation:** {editor_info['affiliation']}
-                        - **Expertise:** {editor_info['description']}
-                        """))
-
-                        # Show Q&A flow
-                        st.markdown("#### Conversation Flow")
-
-                        # Debug each result match attempt
-                        for result in display_tabs.interview_results:
-                            result_info = get_result_info(result)
-                            # st.write(f"Comparing {result_info['editor']['name']} with {editor_info['name']}")
-
-                            if result_info['editor']['name'] == editor_info['name']:
-
-                                # Create a visually appealing Q&A format
-                                for msg in result_info['messages']:
-                                    # Extract the actual content from AIMessage structure
-                                    # Handle both string content and AIMessage objects
-                                    if isinstance(msg, str):
-                                        content = msg
-                                        name = "Unknown"
-                                    else:
-                                        # Check if the content is nested in an AIMessage structure
-                                        if 'AIMessage' in str(msg):
-                                            # Extract content from AIMessage structure
-                                            import re
-
-                                            content_match = re.search(r"content='(.*?)',", str(msg))
-                                            name_match = re.search(r"name='(.*?)'", str(msg))
-
-                                            content = content_match.group(1) if content_match else "No content"
-                                            name = name_match.group(1) if name_match else "Unknown"
-                                        else:
-                                            content = msg.get('content', 'No content')
-                                            name = msg.get('name', 'Unknown')
-
-                                    # Style based on who's speaking
-                                    if name == 'Subject_Matter_Expert':
-                                        st.markdown(f"""
-                                        <div style='background-color: #000206; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                                            <strong>Expert:</strong> {escape_dollar_signs(content)}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-                                    else:
-                                        st.markdown(f"""
-                                        <div style='background-color: #182429; padding: 10px; border-radius: 5px; margin: 5px 0;'>
-                                            <strong>{name}:</strong> {escape_dollar_signs(content)}
-                                        </div>
-                                        """, unsafe_allow_html=True)
-            with tab6:
-                st.subheader("Source Analysis")
-
-                # Get unique citations from display_tabs
-                with st.expander("Referenced URLs"):
-                    if display_tabs.cited_urls:
-                        for i, url in enumerate(display_tabs.cited_urls, 1):
-                            st.markdown(escape_dollar_signs(f"{i}. [{url}]({url})"))
-                    else:
-                        st.info("No URLs cited")
-
-                # Show references with their content
-                with st.expander("Source Content Analysis"):
-                    if display_tabs.cited_references:
-                        for url, content in display_tabs.cited_references.items():
-                            st.markdown(f"### Source: [{url}]({url})")
-                            with st.container():
-                                st.markdown(f"```\n{content[:500]}...\n```")
-                            st.markdown("---")
-                    else:
-                        st.info("No reference content available")
-
-                # Show how sources were used
-                with st.expander("Source Usage by Expert"):
-                    for i, editor in enumerate(display_tabs.perspectives['editors']):
-                        editor_info = get_editor_info(editor)
-                        st.markdown(f"### {editor_info['name']}'s Sources")
-
-                        expert_citations = set()
-                        for result in display_tabs.interview_results:
-                            result_info = get_result_info(result)
-                            if result_info['editor']['name'] == editor_info['name']:
-                                for msg in result_info['messages']:
-                                    if isinstance(msg, dict) and 'content' in msg:
-                                        # Look for citation patterns [1]: url or similar
-                                        citations = re.findall(r'\[[\d\^]+\]:\s*(http[s]?://\S+)', msg['content'])
-                                        expert_citations.update(citations)
-
-                        if expert_citations:
-                            for url in expert_citations:
-                                st.markdown(f"- [{url}]({url})")
-                        else:
-                            st.info(f"No sources cited by {editor_info['name']}")
-
-                # Statistics about sources
-                st.markdown("### Source Statistics")
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.metric("Total Unique Sources",
-                              len(display_tabs.cited_urls) if display_tabs.cited_urls else 0)
-
-                with col2:
-                    # Calculate number of experts citing sources using helper functions
-                    experts_with_citations = 0
+                    expert_citations = set()
                     for result in display_tabs.interview_results:
                         result_info = get_result_info(result)
-                        has_citations = False
-                        for msg in result_info['messages']:
-                            content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
-                            if '[' in str(content):
-                                has_citations = True
-                                break
-                        if has_citations:
-                            experts_with_citations += 1
-                    st.metric("Experts Citing Sources", experts_with_citations)
+                        if result_info['editor']['name'] == editor_info['name']:
+                            for msg in result_info['messages']:
+                                if isinstance(msg, dict) and 'content' in msg:
+                                    # Look for citation patterns [1]: url or similar
+                                    citations = re.findall(r'\[[\d\^]+\]:\s*(http[s]?://\S+)', msg['content'])
+                                    expert_citations.update(citations)
 
-                with col3:
-                    # Average citations per response
-                    total_citations = 0
-                    for result in display_tabs.interview_results:
-                        result_info = get_result_info(result)
-                        for msg in result_info['messages']:
-                            content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
-                            citations = len(re.findall(r'\[[\d\^]+\]', str(content)))
-                            total_citations += citations
+                    if expert_citations:
+                        for url in expert_citations:
+                            st.markdown(f"- [{url}]({url})")
+                    else:
+                        st.info(f"No sources cited by {editor_info['name']}")
 
-                    avg_citations = total_citations / len(
-                        display_tabs.interview_results) if display_tabs.interview_results else 0
-                    st.metric("Average Citations per Expert", f"{avg_citations:.1f}")
+            # Statistics about sources
+            st.markdown("### Source Statistics")
+            col1, col2, col3 = st.columns(3)
 
-            # ... other tabs ...
+            with col1:
+                st.metric("Total Unique Sources",
+                          len(display_tabs.cited_urls) if display_tabs.cited_urls else 0)
 
-            with tab7:
-                st.subheader("Process Visualization")
+            with col2:
+                # Calculate number of experts citing sources using helper functions
+                experts_with_citations = 0
+                for result in display_tabs.interview_results:
+                    result_info = get_result_info(result)
+                    has_citations = False
+                    for msg in result_info['messages']:
+                        content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
+                        if '[' in str(content):
+                            has_citations = True
+                            break
+                    if has_citations:
+                        experts_with_citations += 1
+                st.metric("Experts Citing Sources", experts_with_citations)
 
-                # First visualization: Agent Network
-                st.markdown("### Agent Collaboration Network")
+            with col3:
+                # Average citations per response
+                total_citations = 0
+                for result in display_tabs.interview_results:
+                    result_info = get_result_info(result)
+                    for msg in result_info['messages']:
+                        content = msg['content'] if isinstance(msg, dict) else getattr(msg, 'content', '')
+                        citations = len(re.findall(r'\[[\d\^]+\]', str(content)))
+                        total_citations += citations
 
-                import networkx as nx
-                import matplotlib.pyplot as plt
+                avg_citations = total_citations / len(
+                    display_tabs.interview_results) if display_tabs.interview_results else 0
+                st.metric("Average Citations per Expert", f"{avg_citations:.1f}")
 
-                # Set dark background style for matplotlib
-                plt.style.use('dark_background')
+        # ... other tabs ...
 
-                # Create graph
-                G = nx.DiGraph()
-                agents = ["Research Coordinator", "Outline Generator", "Expert Interviewer",
-                          "Source Analyzer", "Content Writer", "Fact Checker"]
+        with tab7:
+            st.subheader("Process Visualization")
 
-                for agent in agents:
-                    G.add_node(agent)
+            # First visualization: Agent Network
+            st.markdown("### Agent Collaboration Network")
 
-                edges = [
-                    ("Research Coordinator", "Outline Generator"),
-                    ("Outline Generator", "Expert Interviewer"),
-                    ("Expert Interviewer", "Source Analyzer"),
-                    ("Source Analyzer", "Content Writer"),
-                    ("Content Writer", "Fact Checker"),
-                    ("Fact Checker", "Research Coordinator")
-                ]
-                G.add_edges_from(edges)
+            import networkx as nx
+            import matplotlib.pyplot as plt
 
-                # Create visualization with dark theme
-                fig, ax = plt.subplots(figsize=(10, 8), facecolor='#0E1117')
-                ax.set_facecolor('#0E1117')
+            # Set dark background style for matplotlib
+            plt.style.use('dark_background')
 
-                pos = nx.spring_layout(G)
-                nx.draw(G, pos,
-                        with_labels=True,
-                        node_color='#1E88E5',  # Blue nodes
-                        node_size=5000,
-                        font_size=6,
-                        font_weight='bold',
-                        font_color='white',
-                        edge_color='#4A90E2',
-                        arrows=True,
-                        arrowsize=20,
-                        ax=ax)
+            # Create graph
+            G = nx.DiGraph()
+            agents = ["Research Coordinator", "Outline Generator", "Expert Interviewer",
+                      "Source Analyzer", "Content Writer", "Fact Checker"]
 
-                st.pyplot(fig)
+            for agent in agents:
+                G.add_node(agent)
+
+            edges = [
+                ("Research Coordinator", "Outline Generator"),
+                ("Outline Generator", "Expert Interviewer"),
+                ("Expert Interviewer", "Source Analyzer"),
+                ("Source Analyzer", "Content Writer"),
+                ("Content Writer", "Fact Checker"),
+                ("Fact Checker", "Research Coordinator")
+            ]
+            G.add_edges_from(edges)
+
+            # Create visualization with dark theme
+            fig, ax = plt.subplots(figsize=(10, 8), facecolor='#0E1117')
+            ax.set_facecolor('#0E1117')
+
+            pos = nx.spring_layout(G)
+            nx.draw(G, pos,
+                    with_labels=True,
+                    node_color='#1E88E5',  # Blue nodes
+                    node_size=5000,
+                    font_size=6,
+                    font_weight='bold',
+                    font_color='white',
+                    edge_color='#4A90E2',
+                    arrows=True,
+                    arrowsize=20,
+                    ax=ax)
+
+            st.pyplot(fig)
 
 
 
-                if display_tabs.storm_graph:
-                    st.markdown("### STORM Process Flow")
-                    storm_mermaid = display_tabs.storm_graph.get_graph(xray=True).draw_mermaid_png()
-                    st.image(storm_mermaid)
+            if display_tabs.storm_graph:
+                st.markdown("### STORM Process Flow")
+                storm_mermaid = display_tabs.storm_graph.get_graph(xray=True).draw_mermaid_png()
+                st.image(storm_mermaid)
 
-                if display_tabs.interview_graph:
-                    st.markdown("### Interview Process Flow")
-                    interview_mermaid = display_tabs.interview_graph.get_graph(xray=True).draw_mermaid_png()
-                    st.image(interview_mermaid)
+            if display_tabs.interview_graph:
+                st.markdown("### Interview Process Flow")
+                interview_mermaid = display_tabs.interview_graph.get_graph(xray=True).draw_mermaid_png()
+                st.image(interview_mermaid)
 
-        # Once done, display the final memo
-        # st.markdown(final_memo)
+    # Once done, display the final memo
+    # st.markdown(final_memo)
