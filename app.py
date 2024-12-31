@@ -2,6 +2,7 @@ import streamlit as st
 import re
 import pickle
 import time
+import logging
 
 
 import os
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 import getpass
 import asyncio
 from langchain_community.tools.tavily_search import TavilySearchResults
+from duckduckgo_search.exceptions import RatelimitException
 
 load_dotenv()
 
@@ -948,20 +950,76 @@ from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIW
 
 # 1) A function to run the actual web search
 def do_web_search(query: str, max_results=4):
-    """Tries Tavily first, then DuckDuckGo."""
+    """Tries Tavily first, then DuckDuckGo, and returns a uniform list of dicts."""
     tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
     duck = DuckDuckGoSearchAPIWrapper()
+
     try:
-        results = tavily.invoke(query)
-        if results:
-            return results
-        print("No results from Tavily. Falling back to DuckDuckGo.")
-        ddg_results = duck._ddgs_text(query)
-        return [{"content": r["body"], "url": r["href"]} for r in ddg_results]
+        # Attempt Tavily
+        tavily_results = tavily.invoke(query)
+
+        # If Tavily returned a single dict with possible errors or no actual hits
+        if not isinstance(tavily_results, list) or not tavily_results:
+            print("Tavily returned no list or was empty. Falling back to DuckDuckGo.")
+            ddg_results = duck._ddgs_text(query)
+            return [
+                {"content": r.get("body", ""), "url": r.get("href", "")}
+                for r in ddg_results if isinstance(r, dict)
+            ]
+
+        # Normalize the Tavily data
+        normalized = []
+        for item in tavily_results:
+            if isinstance(item, dict):
+                text = item.get("content", "")
+                link = item.get("url", "")
+                normalized.append({"content": text, "url": link})
+            else:
+                normalized.append({"content": str(item), "url": ""})
+
+        # If nothing is valid in normalized, fallback to DuckDuckGo
+        if not normalized:
+            print("No valid Tavily results. Falling back to DuckDuckGo.")
+            ddg_results = duck._ddgs_text(query)
+            return [
+                {"content": r.get("body", ""), "url": r.get("href", "")}
+                for r in ddg_results if isinstance(r, dict)
+            ]
+
+        return normalized
+
+    except RatelimitException as re:
+        # Here we catch the DuckDuckGo rate limit.
+        logging.warning(f"Rate limit from DuckDuckGo encountered: {re}")
+        # Optionally wait and retry, or just return empty
+        time.sleep(10)  # Sleep 10 seconds (arbitrary).
+
+        try:
+            ddg_results = duck._ddgs_text(query)
+            return [
+                {"content": r.get("body", ""), "url": r.get("href", "")}
+                for r in ddg_results if isinstance(r, dict)
+            ]
+        except RatelimitException as re:
+            logging.error("Second attempt also hit rate limit. Returning no results.")
+            return []
+
+
+
     except Exception as e:
-        print(f"Tavily search failed: {e}. Falling back to DuckDuckGo.")
-        ddg_results = duck._ddgs_text(query)
-        return [{"content": r["body"], "url": r["href"]} for r in ddg_results]
+        # On any other Exception, fallback to DuckDuckGo
+        print(f"Tavily search failed or unknown error: {e}. Falling back to DuckDuckGo.")
+        try:
+            ddg_results = duck._ddgs_text(query)
+            return [
+                {"content": r.get("body", ""), "url": r.get("href", "")}
+                for r in ddg_results if isinstance(r, dict)
+            ]
+        except RatelimitException as re:
+            logging.warning(f"Rate limit from DuckDuckGo encountered again: {re}")
+            # Return empty or handle further
+            return []
+
 
 # 2) A function to extract company names from the search result text
 def extract_company_names(user_request: str, web_results) -> list:
