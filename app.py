@@ -208,7 +208,14 @@ async def compile_investment_memo(company):
 
 
     gen_related_topics_prompt = ChatPromptTemplate.from_template(
-        """I'm writing an Investment memo for a company and topic mentioned below. Please identify and recommend some Investment opportunity web pages on closely related subjects. I'm looking for examples that provide insights into interesting aspects commonly associated with this company, topic and sector, or examples that help me understand the typical content and structure included in investment theses for similar companies and opportunities.
+        """I'm writing an Investment memo for a company and topic 
+        mentioned below. Please identify and recommend some 
+        Investment opportunity web pages on closely related 
+        subjects. I'm looking for examples that provide insights 
+        into interesting aspects commonly associated with this 
+        company, topic and sector, or examples that help me 
+        understand the typical content and structure included 
+        in investment theses for similar companies and opportunities.
 
     Please list the as many subjects and urls as you can.
 
@@ -263,11 +270,16 @@ async def compile_investment_memo(company):
     gen_perspectives_prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            """You need to select a diverse group of Investment analysts who will work together to create a comprehensive Investment memo on the topic. 
-            Please use ONLY the following names for the analysts (in order): {expert_names}
+            """You need to select a diverse group of Investment analysts 
+            who will work together to create a comprehensive Investment 
+            memo on the topic. Please use ONLY the following names for 
+            the analysts (in order): {expert_names}
 
-            Each analyst represents a different perspective, role, or affiliation related to this company, investment opportunity and topic.
-            You can use other Investment opportunity pages of related topics for inspiration. For each editor, add a description of what they will focus on.
+            Each analyst represents a different perspective, role, or 
+            affiliation related to this company, investment opportunity
+            and topic. You can use other Investment opportunity pages of 
+            related topics for inspiration. For each editor, add a 
+            description of what they will focus on.
 
             Investment memo outlines of related topics for inspiration:
             {examples}""",
@@ -276,7 +288,7 @@ async def compile_investment_memo(company):
     ])
 
     gen_perspectives_chain = gen_perspectives_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-4o"
     ).with_structured_output(Perspectives)
 
     from langchain_community.retrievers import WikipediaRetriever
@@ -353,25 +365,38 @@ async def compile_investment_memo(company):
     gen_qn_prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            """You are an experienced Private Equity Investment manager conducting due diligence on a potential investment.
-            You have a very specific area of expertise which is based on the Description: in {description}. You must maintain focus on this specific area in your questioning:
+            """You are an experienced Private Equity Investment manager 
+            conducting due diligence on a potential investment. You have 
+            a very specific area of expertise which is based on the Description: 
+            in {description}. You must maintain focus on this specific area 
+            n your questioning:
 
-            You are chatting with an industry expert to gather information that relates SPECIFICALLY to your area of expertise, which is based on your Role: and Affiliation: from {persona}.
-            Your questions should draw directly from your role, affiliation and expertise description.
+            You are chatting with an industry expert to gather information that 
+            relates SPECIFICALLY to your area of expertise, which is based on 
+            your Role: and Affiliation: from {persona}. Your questions should 
+            draw directly from your role, affiliation and expertise description.
 
             For example:
-            - A Legal Expert should focus on regulatory compliance, intellectual property, contractual obligations
-            - A Data Analyst should focus on user metrics, engagement patterns, performance indicators
-            - A Tech Expert should focus on system architecture, scalability, technical debt
-            - A Financial Expert should focus on revenue models, cost structures, margins
-            - A Market Analyst should focus on competition, competitive threats, supplier and customer dynamics 
-            - An Investment Analyst should focus on existing investors and valuations in prior investment rounds in this company or companies in this sector
+            - A Legal Expert should focus on regulatory compliance, intellectual 
+                    property, contractual obligations
+            - A Data Analyst should focus on user metrics, engagement patterns, 
+                    performance indicators
+            - A Tech Expert should focus on system architecture, scalability, 
+                    technical debt
+            - A Financial Expert should focus on revenue models, cost structures, 
+                    margins
+            - A Market Analyst should focus on competition, competitive threats, 
+                    supplier and customer dynamics 
+            - An Investment Analyst should focus on existing investors and valuations 
+                    in prior investment rounds in this company or companies in this sector
 
-            Ask ONE question at a time about the target company, but ensure each question is directly related to your specific expertise; i.e.  {description}.
+            Ask ONE question at a time about the target company, but ensure each question 
+            is directly related to your specific expertise; i.e.  {description}.
             Do not ask about general topics outside your domain of expertise.
             Do not ask questions that other experts would be better suited to ask.
 
-            When you have no more questions specific to your domain of expertise, say "Thank you so much for your help!"
+            When you have no more questions specific to your domain of expertise, say 
+                "Thank you so much for your help!"
             """
         ),
         MessagesPlaceholder(variable_name="messages", optional=True),
@@ -430,7 +455,7 @@ async def compile_investment_memo(company):
         ]
     )
     gen_queries_chain = gen_queries_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-4o"
     ).with_structured_output(Queries, include_raw=True)
 
     queries = await gen_queries_chain.ainvoke(
@@ -1047,7 +1072,7 @@ def extract_company_names(user_request: str, web_results) -> list:
         """
     )
 
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
+    llm = ChatOpenAI(model="gpt-4o")
     resp = llm.invoke(
         prompt.format(user_request=user_request, combined_text=combined_text)
     )
