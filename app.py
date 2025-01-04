@@ -978,7 +978,7 @@ def do_web_search(query: str, max_results=4):
     """Tries Tavily first, then DuckDuckGo, and returns a uniform list of dicts."""
     tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
     duck = DuckDuckGoSearchAPIWrapper()
-
+    print(max_results)
     try:
         # Attempt Tavily
         tavily_results = tavily.invoke(query)
@@ -1053,6 +1053,7 @@ def extract_company_names(user_request: str, web_results) -> list:
       "Based on the user request, list possible relevant company names only."
     Return a Python list of strings.
     """
+    print(web_results)
     text_snippets = []
     for r in web_results:
         snippet = (r["content"] or "")[:800]  # limit text
@@ -1072,10 +1073,13 @@ def extract_company_names(user_request: str, web_results) -> list:
         """
     )
 
-    llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatOpenAI(model="gpt-3.5-turbo")
     resp = llm.invoke(
         prompt.format(user_request=user_request, combined_text=combined_text)
     )
+    print(resp)
+    print(user_request)
+    print(combined_text)
 
     # Attempt to parse JSON
     try:
