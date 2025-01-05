@@ -116,7 +116,7 @@ def sanitize_name(name: str) -> str:
 async def compile_investment_memo(company):
     from langchain_openai import ChatOpenAI
 
-    fast_llm = ChatOpenAI(model="gpt-4o")
+    fast_llm = ChatOpenAI(model="gpt-4o-mini")
     # Uncomment for a Fireworks model
     # fast_llm = ChatFireworks(model="accounts/fireworks/models/firefunction-v1", max_tokens=32_000)
     long_context_llm = ChatOpenAI(model="gpt-4o")
@@ -288,7 +288,7 @@ async def compile_investment_memo(company):
     ])
 
     gen_perspectives_chain = gen_perspectives_prompt | ChatOpenAI(
-        model="gpt-4o"
+        model="gpt-3.5-turbo"
     ).with_structured_output(Perspectives)
 
     from langchain_community.retrievers import WikipediaRetriever
@@ -455,7 +455,7 @@ async def compile_investment_memo(company):
         ]
     )
     gen_queries_chain = gen_queries_prompt | ChatOpenAI(
-        model="gpt-4o"
+        model="gpt-3.5-turbo"
     ).with_structured_output(Queries, include_raw=True)
 
     queries = await gen_queries_chain.ainvoke(
@@ -522,11 +522,12 @@ async def compile_investment_memo(company):
         """Search engine to the internet."""
         try:
             # Try Tavily first
-            tavily_search = TavilySearchResults(
-                max_results=4,
-                api_key=TAVILY_API_KEY  # We already have this from environment
-            )
-            results = tavily_search.invoke(query)
+            # tavily_search = TavilySearchResults(
+            #     max_results=4,
+            #     api_key=TAVILY_API_KEY  # We already have this from environment
+            # )
+            # results = tavily_search.invoke(query)
+            results = DuckDuckGoSearchAPIWrapper()._ddgs_text(query)
             return [{"content": r["content"], "url": r["url"]} for r in results]
         except Exception as e:
             print(f"Tavily search failed: {str(e)}. Falling back to DuckDuckGo.")
@@ -978,14 +979,15 @@ def do_web_search(query: str, max_results=4):
     """Tries Tavily first, then DuckDuckGo, and returns a uniform list of dicts."""
     tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
     duck = DuckDuckGoSearchAPIWrapper()
-    print(max_results)
+    # print(max_results)
     try:
-        # Attempt Tavily
-        tavily_results = tavily.invoke(query)
+        # Attempt Tavily Change back!! Richard!
+        # tavily_results = tavily.invoke(query)
+        tavily_results = duck._ddgs_text(query)
 
         # If Tavily returned a single dict with possible errors or no actual hits
         if not isinstance(tavily_results, list) or not tavily_results:
-            print("Tavily returned no list or was empty. Falling back to DuckDuckGo.")
+            print("Tavily returned no list or was empty. Falling back to McDuckyDuckGo.")
             ddg_results = duck._ddgs_text(query)
             return [
                 {"content": r.get("body", ""), "url": r.get("href", "")}
@@ -1053,7 +1055,7 @@ def extract_company_names(user_request: str, web_results) -> list:
       "Based on the user request, list possible relevant company names only."
     Return a Python list of strings.
     """
-    print(web_results)
+    # print(web_results)
     text_snippets = []
     for r in web_results:
         snippet = (r["content"] or "")[:800]  # limit text
@@ -1077,9 +1079,9 @@ def extract_company_names(user_request: str, web_results) -> list:
     resp = llm.invoke(
         prompt.format(user_request=user_request, combined_text=combined_text)
     )
-    print(resp)
-    print(user_request)
-    print(combined_text)
+    # print(resp)
+    # print(user_request)
+    # print(combined_text)
 
     # Attempt to parse JSON
     try:
@@ -1120,7 +1122,7 @@ with st.sidebar:
     max_dropdown = st.number_input("Max companies to show:", min_value=0, max_value=10, value=7)
 
     if st.button("Search for Companies"):
-        st.session_state["found_companies"] = find_companies(search_text)
+        st.session_state["found_companies"] = find_companies(search_text, max_dropdown)
         st.write("Companies found:")
         for c in st.session_state["found_companies"]:
             st.write("-", c)
