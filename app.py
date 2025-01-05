@@ -419,6 +419,7 @@ async def compile_investment_memo(company):
     async def generate_question(state: InterviewState):
         editor = state["editor"]
 
+
         gn_chain = (
                 RunnableLambda(swap_roles).bind(name=sanitize_name(editor.name))
                 | gen_qn_prompt.partial(persona=editor.persona, description=editor.description)
@@ -1095,9 +1096,9 @@ def extract_company_names(user_request: str, web_results) -> list:
     except:
         return []
 
-def find_companies(user_request: str) -> list:
+def find_companies(user_request: str, max_results) -> list:
     """High-level function: search, then extract relevant company names."""
-    raw_results = do_web_search(user_request, max_results=4)
+    raw_results = do_web_search(user_request, max_results)
     companies = extract_company_names(user_request, raw_results)
     return companies
 
