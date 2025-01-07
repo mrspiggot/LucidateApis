@@ -365,37 +365,36 @@ async def compile_investment_memo(company):
     gen_qn_prompt = ChatPromptTemplate.from_messages([
         (
             "system",
-            """You are an experienced Private Equity Investment manager 
-            conducting due diligence on a potential investment. You have 
-            a very specific area of expertise which is based on the Description: 
-            in {description}. You must maintain focus on this specific area 
-            n your questioning:
+            """You are an experienced Private Equity Investment manager
+            conducting due diligence on a potential investment. You have
+            a very specific area of expertise which is based on your Role:
+            {editor_role} and Affiliation: {editor_affiliation}. You must maintain focus on this specific area
+            in your questioning:
 
-            You are chatting with an industry expert to gather information that 
-            relates SPECIFICALLY to your area of expertise, which is based on 
-            your Role: and Affiliation: from {persona}. Your questions should 
-            draw directly from your role, affiliation and expertise description.
+            You are chatting with an industry expert to gather information that
+            relates SPECIFICALLY to your area of expertise, Your questions should
+            draw directly from your role, affiliation, and expertise description: {editor_description}.
 
             For example:
-            - A Legal Expert should focus on regulatory compliance, intellectual 
+            - A Legal Expert should focus on regulatory compliance, intellectual
                     property, contractual obligations
-            - A Data Analyst should focus on user metrics, engagement patterns, 
+            - A Data Analyst should focus on user metrics, engagement patterns,
                     performance indicators
-            - A Tech Expert should focus on system architecture, scalability, 
+            - A Tech Expert should focus on system architecture, scalability,
                     technical debt
-            - A Financial Expert should focus on revenue models, cost structures, 
+            - A Financial Expert should focus on revenue models, cost structures,
                     margins
-            - A Market Analyst should focus on competition, competitive threats, 
-                    supplier and customer dynamics 
-            - An Investment Analyst should focus on existing investors and valuations 
+            - A Market Analyst should focus on competition, competitive threats,
+                    supplier and customer dynamics
+            - An Investment Analyst should focus on existing investors and valuations
                     in prior investment rounds in this company or companies in this sector
 
-            Ask ONE question at a time about the target company, but ensure each question 
-            is directly related to your specific expertise; i.e.  {description}.
+            Ask ONE question at a time about the target company, but ensure each question
+            is directly related to your specific expertise.
             Do not ask about general topics outside your domain of expertise.
             Do not ask questions that other experts would be better suited to ask.
 
-            When you have no more questions specific to your domain of expertise, say 
+            When you have no more questions specific to your domain of expertise, say
                 "Thank you so much for your help!"
             """
         ),
@@ -418,15 +417,17 @@ async def compile_investment_memo(company):
     @as_runnable
     async def generate_question(state: InterviewState):
         editor = state["editor"]
-
-
         gn_chain = (
                 RunnableLambda(swap_roles).bind(name=sanitize_name(editor.name))
-                | gen_qn_prompt.partial(persona=editor.persona, description=editor.description)
+                | gen_qn_prompt.partial(editor_role= editor.role, editor_affiliation= editor.affiliation, editor_description= editor.description)
                 | fast_llm
                 | RunnableLambda(tag_with_name).bind(name=sanitize_name(editor.name))
         )
         result = await gn_chain.ainvoke(state)
+        print(f"editor.name: {editor.name}")
+        print(f"editor.role: {editor.role}")
+        print(f"editor.affiliation: {editor.affiliation}")
+        print(f"editor.description: {editor.description}")
         return {"messages": [result]}
 
     messages = [
