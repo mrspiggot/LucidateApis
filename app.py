@@ -12,6 +12,7 @@ import getpass
 import asyncio
 from langchain_community.tools.tavily_search import TavilySearchResults
 from duckduckgo_search.exceptions import RatelimitException
+from duckduckgo_search.exceptions import DuckDuckGoSearchException
 
 load_dotenv()
 
@@ -1123,11 +1124,40 @@ with st.sidebar:
     search_text = st.text_area("Describe the companies you want to find:")
     max_dropdown = st.number_input("Max companies to show:", min_value=0, max_value=10, value=7)
 
+    import duckduckgo_search  # <-- ensure you have the import for exceptions
+
     if st.button("Search for Companies"):
-        st.session_state["found_companies"] = find_companies(search_text, max_dropdown)
-        st.write("Companies found:")
-        for c in st.session_state["found_companies"]:
-            st.write("-", c)
+        try:
+            st.session_state["found_companies"] = find_companies(search_text, max_dropdown)
+        except duckduckgo_search.exceptions.DuckDuckGoSearchException:
+            # If an exception happens inside do_web_search or find_companies
+            st.warning(
+                "Your query failed to return a sufficient number of company names.\n\n"
+                "Please rephrase your question. In order to get a listing of companies from search, "
+                "it is often useful to type:\n"
+                "• 'Fintech companies that...'\n"
+                "• 'Startup firms that...'\n"
+                "• 'Privately held businesses that...'\n\n"
+                "This prompts the search and the AI to return lists of matching firms."
+            )
+            st.session_state["found_companies"] = []  # Clear the list so no further code tries to use it
+
+        # Also handle the case where we get back an *empty* list, but no exception
+        if not st.session_state["found_companies"]:
+            st.warning(
+                "Your query failed to return a sufficient number of company names.\n\n"
+                "Please rephrase your question. In order to get a listing of companies from search, "
+                "it is often useful to type:\n\n"
+                "• 'Fintech companies that...'\n\n"
+                "• 'Startup firms that...'\n\n"
+                "• 'Privately held businesses that...'\n\n"
+                "This prompts the search and the AI to return lists of matching firms."
+            )
+        else:
+            # Display the companies found
+            st.write("Companies found:")
+            for c in st.session_state["found_companies"]:
+                st.write("-", c)
 
 # Main pane
 st.image("apis.png", width=200)  # Adjust path and size
