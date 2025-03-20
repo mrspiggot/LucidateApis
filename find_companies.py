@@ -951,10 +951,10 @@ from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIW
 # 1) A function to run the actual web search
 def do_web_search(query: str, max_results=4):
     """Tries Tavily first, then DuckDuckGo."""
-    tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
+    # tavily = TavilySearchResults(api_key=TAVILY_API_KEY, max_results=max_results)
     duck = DuckDuckGoSearchAPIWrapper()
     try:
-        results = tavily.invoke(query)
+        results = None
         if results:
             return results
         print("No results from Tavily. Falling back to DuckDuckGo.")
