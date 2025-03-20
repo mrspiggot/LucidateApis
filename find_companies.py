@@ -98,8 +98,8 @@ def state_graph_to_mermaid(graph, title="Workflow") -> str:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-_set_env("OPENAI_API_KEY")
-_set_env("TAVILY_API_KEY")
+# _set_env("OPENAI_API_KEY")
+# _set_env("TAVILY_API_KEY")
 
 
 def sanitize_name(name: str) -> str:
@@ -114,10 +114,10 @@ def sanitize_name(name: str) -> str:
 async def compile_investment_memo(company):
     from langchain_openai import ChatOpenAI
 
-    fast_llm = ChatOpenAI(model="gpt-4o")
+    fast_llm = ChatOpenAI(model="gpt-4o", api_key=OPENAI_API_KEY)
     # Uncomment for a Fireworks model
     # fast_llm = ChatFireworks(model="accounts/fireworks/models/firefunction-v1", max_tokens=32_000)
-    long_context_llm = ChatOpenAI(model="gpt-4o")
+    long_context_llm = ChatOpenAI(model="gpt-4o", api_key=OPENAI_API_KEY)
 
     from typing import List, Optional, Any
 
@@ -274,7 +274,7 @@ async def compile_investment_memo(company):
     ])
 
     gen_perspectives_chain = gen_perspectives_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-3.5-turbo", api_key=OPENAI_API_KEY
     ).with_structured_output(Perspectives)
 
     from langchain_community.retrievers import WikipediaRetriever
@@ -428,7 +428,7 @@ async def compile_investment_memo(company):
         ]
     )
     gen_queries_chain = gen_queries_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-3.5-turbo", api_key=OPENAI_API_KEY
     ).with_structured_output(Queries, include_raw=True)
 
     queries = await gen_queries_chain.ainvoke(
@@ -495,11 +495,13 @@ async def compile_investment_memo(company):
         """Search engine to the internet."""
         try:
             # Try Tavily first
-            tavily_search = TavilySearchResults(
-                max_results=4,
-                api_key=TAVILY_API_KEY  # We already have this from environment
-            )
-            results = tavily_search.invoke(query)
+            # tavily_search = TavilySearchResults(
+            #     max_results=4,
+            #     api_key=TAVILY_API_KEY  # We already have this from environment
+            # )
+            # results = tavily_search.invoke(query)
+            results = DuckDuckGoSearchAPIWrapper()._ddgs_text(query)
+            print(f"DDG Results: {results}")
             return [{"content": r["content"], "url": r["url"]} for r in results]
         except Exception as e:
             print(f"Tavily search failed: {str(e)}. Falling back to DuckDuckGo.")
@@ -989,7 +991,7 @@ def extract_company_names(user_request: str, web_results) -> list:
         """
     )
 
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
+    llm = ChatOpenAI(model="gpt-3.5-turbo", api_key=OPENAI_API_KEY)
     resp = llm.invoke(
         prompt.format(user_request=user_request, combined_text=combined_text)
     )
@@ -1017,7 +1019,7 @@ def find_companies(user_request: str) -> list:
 
 
 
-st.set_page_config(page_title="APIs Partners PE Investment Memo App", layout="wide")
+st.set_page_config(page_title="NEXTfrontier Investment Memo App", layout="wide")
 
 if "found_companies" not in st.session_state:
     st.session_state["found_companies"] = []
