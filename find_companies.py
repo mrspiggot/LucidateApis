@@ -98,7 +98,7 @@ def state_graph_to_mermaid(graph, title="Workflow") -> str:
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-# _set_env("OPENAI_API_KEY")
+_set_env("OPENAI_API_KEY")
 # _set_env("TAVILY_API_KEY")
 
 
