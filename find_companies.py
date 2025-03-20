@@ -1039,9 +1039,9 @@ with st.sidebar:
             st.write("-", c)
 
 # Main pane
-st.image("apis.png", width=200)  # Adjust path and size
-st.write("Apis Partners")
-st.title("Apis Partners Private Equity Investment Memorandum Writer")
+st.image("nfc.png", width=200)  # Adjust path and size
+st.write("NEXTfrontier")
+st.title("NEXTfrontier Capital Investment Memorandum Writer")
 st.write("Enter company name:")
 
 # Let user pick a company from the found list
@@ -1153,7 +1153,7 @@ if compile_button and st.session_state["selected_company"]:
                             st.json(result)  # Show raw result data
 
         with tab5:
-            st.subheader("Conversation Analysis")
+            st.subheader("Detailed Conversation Analysis")
 
             # Debug information
             st.write("Number of editors:", len(display_tabs.perspectives['editors']))

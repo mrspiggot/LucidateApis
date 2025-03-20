@@ -117,10 +117,10 @@ def sanitize_name(name: str) -> str:
 async def compile_investment_memo(company):
     from langchain_openai import ChatOpenAI
 
-    fast_llm = ChatOpenAI(model="gpt-4o-mini")
+    fast_llm = ChatOpenAI(model="gpt-4o-mini", temperature = 0.0)
     # Uncomment for a Fireworks model
     # fast_llm = ChatFireworks(model="accounts/fireworks/models/firefunction-v1", max_tokens=32_000)
-    long_context_llm = ChatOpenAI(model="gpt-4o")
+    long_context_llm = ChatOpenAI(model="gpt-4o", temperature = 0.0)
 
     from typing import List, Optional, Any
 
@@ -289,7 +289,7 @@ async def compile_investment_memo(company):
     ])
 
     gen_perspectives_chain = gen_perspectives_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-4o"
     ).with_structured_output(Perspectives)
 
     from langchain_community.retrievers import WikipediaRetriever
@@ -458,7 +458,7 @@ async def compile_investment_memo(company):
         ]
     )
     gen_queries_chain = gen_queries_prompt | ChatOpenAI(
-        model="gpt-3.5-turbo"
+        model="gpt-4o"
     ).with_structured_output(Queries, include_raw=True)
 
     queries = await gen_queries_chain.ainvoke(
@@ -1077,14 +1077,15 @@ def extract_company_names(user_request: str, web_results) -> list:
         Return them as a JSON list of strings, e.g. ["CompanyA", "CompanyB"].
         """
     )
+    print(prompt)
 
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
+    llm = ChatOpenAI(model="gpt-4o", temperature = 0.0)
     resp = llm.invoke(
         prompt.format(user_request=user_request, combined_text=combined_text)
     )
-    # print(resp)
-    # print(user_request)
-    # print(combined_text)
+    print(f"resp: {resp}")
+    print(f"user_request: {user_request}")
+    print(f"combined_text: {combined_text}")
 
     # Attempt to parse JSON
     try:
@@ -1101,6 +1102,7 @@ def extract_company_names(user_request: str, web_results) -> list:
 def find_companies(user_request: str, max_results) -> list:
     """High-level function: search, then extract relevant company names."""
     raw_results = do_web_search(user_request, max_results)
+    print(raw_results)
     companies = extract_company_names(user_request, raw_results)
     return companies
 
@@ -1160,9 +1162,9 @@ with st.sidebar:
                 st.write("-", c)
 
 # Main pane
-st.image("apis.png", width=200)  # Adjust path and size
-st.write("Apis Partners")
-st.title("Apis Partners Private Equity Investment Memorandum Writer")
+st.image("nfc.png", width=200)  # Adjust path and size
+st.write("NEXTfrontier Capital")
+st.title("NextFrontier Investment Memorandum Writer")
 st.write("Enter company name:")
 
 # Let user pick a company from the found list
