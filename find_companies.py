@@ -1066,7 +1066,7 @@ if compile_button and st.session_state["selected_company"]:
             "Outline Evolution",
             "Research Process",
             "Expert Interviews",
-            "Conversation Analysis",  # New tab
+            "Detailed Conversation Analysis",  # New tab
             "Source Analysis",
             "Process Visualization"
         ])
